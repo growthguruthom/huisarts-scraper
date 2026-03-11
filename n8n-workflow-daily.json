@@ -1,0 +1,435 @@
+{
+  "name": "Huisarts Scraper - Dagelijks",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Elke dag 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 300]
+    },
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Handmatig Starten",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 500]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://huisarts-scraper-api:8321/run",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.SCRAPER_API_TOKEN || 'geheim123' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "trigger-scraper",
+      "name": "Start Scraper",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "amount": 90,
+        "unit": "seconds"
+      },
+      "id": "wait-for-scraper",
+      "name": "Wacht 90s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://huisarts-scraper-api:8321/status",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.SCRAPER_API_TOKEN || 'geheim123' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "check-status",
+      "name": "Check Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "still-running",
+              "leftValue": "={{ $json.running }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "still-running",
+      "name": "Nog bezig?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "amount": 60,
+        "unit": "seconds"
+      },
+      "id": "wait-more",
+      "name": "Wacht 60s extra",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1100, 100]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://huisarts-scraper-api:8321/status",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $env.SCRAPER_API_TOKEN || 'geheim123' }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "check-status-2",
+      "name": "Check Status (2)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [880, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse the scraper result from the status API\nconst data = $input.first().json;\nconst result = data.last_result || {};\nconst summary = result.summary || {};\n\n// Build match list for email\nlet matchList = '';\nconst matches = summary.today_matches || [];\nif (matches.length > 0) {\n  matchList = matches.map(m => \n    `- ${m.naam} (${m.stad}) \\u2014 ${m.match_type} (score: ${m.match_score})\\n  Signaal: ${m.titel}\\n  Gemeente: ${m.gemeente}`\n  ).join('\\n\\n');\n} else {\n  matchList = 'Geen nieuwe matches vandaag.';\n}\n\nconst exitCode = result.exit_code ?? -1;\n\nreturn [{\n  json: {\n    status: exitCode === 0 ? 'success' : 'error',\n    date: summary.date || new Date().toISOString().split('T')[0],\n    new_signalen: summary.new_signalen || 0,\n    new_matches: summary.new_matches || 0,\n    total_signalen: summary.total_signalen || 0,\n    total_matches: summary.total_matches || 0,\n    total_praktijken: summary.total_praktijken || 0,\n    total_gemeenten: summary.total_gemeenten || 0,\n    match_list: matchList,\n    has_new_matches: (summary.new_matches || 0) > 0,\n    exit_code: exitCode,\n    error_message: result.stderr || result.error || null,\n    last_output: result.stdout_tail || ''\n  }\n}];"
+      },
+      "id": "parse-result",
+      "name": "Parse Resultaat",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-success",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-success",
+      "name": "Succesvol?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1540, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-new-matches",
+              "leftValue": "={{ $json.has_new_matches }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-new-matches",
+      "name": "Nieuwe Matches?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1760, 300]
+    },
+    {
+      "parameters": {
+        "sendTo": "thom@growthguru.nl",
+        "subject": "=\ud83c\udfe5 Huisarts Scraper: {{ $json.new_matches }} nieuwe matches ({{ $json.date }})",
+        "message": "=<h2>Huisarts Verbouwing Scraper \u2014 Dagelijks Rapport</h2>\n<p><strong>Datum:</strong> {{ $json.date }}</p>\n\n<h3>\ud83d\udcca Vandaag</h3>\n<table style=\"border-collapse:collapse;width:100%;max-width:500px;\">\n<tr style=\"background:#f0f0f0;\"><td style=\"padding:8px;border:1px solid #ddd;\">Nieuwe signalen</td><td style=\"padding:8px;border:1px solid #ddd;\"><strong>{{ $json.new_signalen }}</strong></td></tr>\n<tr><td style=\"padding:8px;border:1px solid #ddd;\">Nieuwe matches</td><td style=\"padding:8px;border:1px solid #ddd;\"><strong style=\"color:#e67e22;\">{{ $json.new_matches }}</strong></td></tr>\n</table>\n\n<h3>\ud83d\udcc8 Totalen</h3>\n<table style=\"border-collapse:collapse;width:100%;max-width:500px;\">\n<tr style=\"background:#f0f0f0;\"><td style=\"padding:8px;border:1px solid #ddd;\">Praktijken</td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $json.total_praktijken }}</td></tr>\n<tr><td style=\"padding:8px;border:1px solid #ddd;\">Signalen</td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $json.total_signalen }}</td></tr>\n<tr style=\"background:#f0f0f0;\"><td style=\"padding:8px;border:1px solid #ddd;\">Matches</td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $json.total_matches }}</td></tr>\n<tr><td style=\"padding:8px;border:1px solid #ddd;\">Gemeenten</td><td style=\"padding:8px;border:1px solid #ddd;\">{{ $json.total_gemeenten }}</td></tr>\n</table>\n\n<h3>\ud83c\udfe5 Nieuwe Matches</h3>\n<pre style=\"background:#f5f5f5;padding:12px;border-radius:4px;font-size:13px;\">{{ $json.match_list }}</pre>\n\n<hr style=\"margin:20px 0;\">\n<p style=\"color:#999;font-size:12px;\">Automatisch verzonden door Huisarts Scraper via n8n</p>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-matches",
+      "name": "Email: Nieuwe Matches",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1980, 220]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "log-no-matches",
+              "name": "log",
+              "value": "=Geen nieuwe matches op {{ $json.date }}. Signalen: +{{ $json.new_signalen }}.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "no-matches",
+      "name": "Log: Geen Matches",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1980, 400]
+    },
+    {
+      "parameters": {
+        "sendTo": "thom@growthguru.nl",
+        "subject": "=\u274c Huisarts Scraper FOUT ({{ $json.date }})",
+        "message": "=<h2 style=\"color:#e74c3c;\">Huisarts Scraper \u2014 Fout</h2>\n<p><strong>Datum:</strong> {{ $json.date }}</p>\n<p><strong>Exit code:</strong> {{ $json.exit_code }}</p>\n\n<h3>Error</h3>\n<pre style=\"background:#fff0f0;padding:12px;border-radius:4px;border:1px solid #e74c3c;font-size:13px;\">{{ $json.error_message }}</pre>\n\n<h3>Laatste Output</h3>\n<pre style=\"background:#f5f5f5;padding:12px;border-radius:4px;font-size:13px;\">{{ $json.last_output }}</pre>\n\n<hr style=\"margin:20px 0;\">\n<p style=\"color:#999;font-size:12px;\">Automatisch verzonden door Huisarts Scraper via n8n</p>",
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "id": "email-error",
+      "name": "Email: Fout",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1760, 560]
+    }
+  ],
+  "connections": {
+    "Elke dag 08:00": {
+      "main": [
+        [
+          {
+            "node": "Start Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Handmatig Starten": {
+      "main": [
+        [
+          {
+            "node": "Start Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start Scraper": {
+      "main": [
+        [
+          {
+            "node": "Wacht 90s",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wacht 90s": {
+      "main": [
+        [
+          {
+            "node": "Check Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Status": {
+      "main": [
+        [
+          {
+            "node": "Nog bezig?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nog bezig?": {
+      "main": [
+        [
+          {
+            "node": "Wacht 60s extra",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Parse Resultaat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wacht 60s extra": {
+      "main": [
+        [
+          {
+            "node": "Check Status (2)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Status (2)": {
+      "main": [
+        [
+          {
+            "node": "Parse Resultaat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Resultaat": {
+      "main": [
+        [
+          {
+            "node": "Succesvol?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Succesvol?": {
+      "main": [
+        [
+          {
+            "node": "Nieuwe Matches?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Email: Fout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nieuwe Matches?": {
+      "main": [
+        [
+          {
+            "node": "Email: Nieuwe Matches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log: Geen Matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Europe/Amsterdam"
+  },
+  "tags": [
+    {
+      "name": "scraper"
+    },
+    {
+      "name": "daily"
+    },
+    {
+      "name": "huisarts"
+    }
+  ]
+}

@@ -1,0 +1,218 @@
+name: Daily Huisarts Scraper
+
+on:
+  schedule:
+    # Elke dag om 06:00 UTC = 08:00 CET (winter) / 08:00 CEST (zomer)
+    - cron: '0 6 * * *'
+  workflow_dispatch: # Handmatig triggeren
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements-scraper.txt
+
+      - name: Restore database
+        # Database wordt opgeslagen als artifact EN in de repo
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: huisarts-db
+          path: data/
+
+      - name: Fallback - use repo database
+        run: |
+          # Als artifact niet beschikbaar is, gebruik DB uit repo
+          if [ ! -f data/huisarts.db ]; then
+            echo "Geen artifact DB, check repo..."
+            if [ -f data/huisarts.db ]; then
+              echo "Database uit repo gevonden."
+            else
+              echo "Geen database gevonden, start vers."
+              mkdir -p data
+            fi
+          else
+            echo "Database uit artifact hersteld."
+          fi
+
+      - name: Count before
+        id: before
+        run: |
+          python -c "
+          import sqlite3
+          from pathlib import Path
+          db = Path('data/huisarts.db')
+          if db.exists():
+              conn = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+              matches = conn.execute('SELECT COUNT(*) FROM matches').fetchone()[0]
+              signalen = conn.execute('SELECT COUNT(*) FROM signalen').fetchone()[0]
+              conn.close()
+              print(f'matches={matches}')
+              print(f'signalen={signalen}')
+          else:
+              print('matches=0')
+              print('signalen=0')
+          " >> "$GITHUB_OUTPUT"
+
+      - name: Run scraper
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
+        run: |
+          python main.py --since 2d --enrich --delay 1.5
+
+      - name: Export results
+        run: |
+          python -c "
+          import csv, sqlite3, json
+          from pathlib import Path
+          from datetime import datetime, timedelta
+
+          DB = Path('data/huisarts.db')
+          if not DB.exists():
+              print('Geen database.')
+              exit(0)
+
+          conn = sqlite3.connect(f'file:{DB}?mode=ro', uri=True)
+          conn.row_factory = sqlite3.Row
+
+          # Full export
+          rows = conn.execute('''
+              SELECT p.naam, p.agb_code, p.adres, p.postcode, p.stad, p.telefoon, p.website,
+                     s.type, s.titel, s.bron_url, s.publicatiedatum, s.gemeente,
+                     m.match_score, m.match_type, m.created_at
+              FROM matches m
+              JOIN praktijken p ON m.praktijk_agb = p.agb_code
+              JOIN signalen s ON m.signaal_id = s.id
+              ORDER BY m.created_at DESC
+          ''').fetchall()
+
+          with open('data/matches_export.csv', 'w', newline='', encoding='utf-8') as f:
+              writer = csv.writer(f)
+              writer.writerow([d[0] for d in rows[0].keys()] if rows else [])
+              for r in rows:
+                  writer.writerow(list(r))
+          print(f'Exported {len(rows)} matches')
+
+          # Today's new matches
+          since = (datetime.now() - timedelta(hours=24)).isoformat()
+          new_matches = conn.execute('''
+              SELECT p.naam, p.stad, s.titel, s.gemeente, m.match_type, m.match_score
+              FROM matches m
+              JOIN praktijken p ON m.praktijk_agb = p.agb_code
+              JOIN signalen s ON m.signaal_id = s.id
+              WHERE m.created_at >= ?
+              ORDER BY m.created_at DESC LIMIT 20
+          ''', (since,)).fetchall()
+
+          with open('data/today_matches.json', 'w', encoding='utf-8') as f:
+              json.dump([dict(r) for r in new_matches], f, ensure_ascii=False, indent=2)
+
+          conn.close()
+          "
+
+      - name: Collect stats
+        id: stats
+        run: |
+          python -c "
+          import sqlite3, json
+          conn = sqlite3.connect('file:data/huisarts.db?mode=ro', uri=True)
+          stats = {
+              'total_praktijken': conn.execute('SELECT COUNT(*) FROM praktijken').fetchone()[0],
+              'total_signalen': conn.execute('SELECT COUNT(*) FROM signalen').fetchone()[0],
+              'total_matches': conn.execute('SELECT COUNT(*) FROM matches').fetchone()[0],
+              'total_gemeenten': conn.execute('SELECT COUNT(DISTINCT gemeente) FROM signalen WHERE gemeente IS NOT NULL').fetchone()[0],
+          }
+          conn.close()
+
+          matches_before = ${{ steps.before.outputs.matches || 0 }}
+          signalen_before = ${{ steps.before.outputs.signalen || 0 }}
+
+          stats['new_matches'] = stats['total_matches'] - matches_before
+          stats['new_signalen'] = stats['total_signalen'] - signalen_before
+
+          for k, v in stats.items():
+              print(f'{k}={v}')
+          " >> "$GITHUB_OUTPUT"
+
+      - name: Save database as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: huisarts-db
+          path: |
+            data/huisarts.db
+          retention-days: 90
+          overwrite: true
+
+      - name: Commit updated data to repo
+        run: |
+          git config user.name "Huisarts Scraper Bot"
+          git config user.email "bot@huisarts-scraper.local"
+          git add data/huisarts.db data/matches_export.csv data/today_matches.json || true
+          git diff --staged --quiet || git commit -m "Daily scrape: +${{ steps.stats.outputs.new_signalen }} signalen, +${{ steps.stats.outputs.new_matches }} matches [skip ci]"
+          git push || echo "Push failed, continuing..."
+
+      - name: Send email notification
+        if: steps.stats.outputs.new_matches != '0'
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "\U0001F3E5 Huisarts Scraper: ${{ steps.stats.outputs.new_matches }} nieuwe matches"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: Huisarts Scraper <${{ secrets.SMTP_USERNAME }}>
+          content_type: text/html
+          body: |
+            <h2>Huisarts Verbouwing Scraper — Dagelijks Rapport</h2>
+            <p><strong>Datum:</strong> ${{ github.event.repository.updated_at || 'vandaag' }}</p>
+
+            <h3>Vandaag</h3>
+            <table style="border-collapse:collapse;width:100%;max-width:500px;">
+            <tr style="background:#f0f0f0;"><td style="padding:8px;border:1px solid #ddd;">Nieuwe signalen</td><td style="padding:8px;border:1px solid #ddd;"><strong>${{ steps.stats.outputs.new_signalen }}</strong></td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;">Nieuwe matches</td><td style="padding:8px;border:1px solid #ddd;"><strong style="color:#e67e22;">${{ steps.stats.outputs.new_matches }}</strong></td></tr>
+            </table>
+
+            <h3>Totalen</h3>
+            <table style="border-collapse:collapse;width:100%;max-width:500px;">
+            <tr style="background:#f0f0f0;"><td style="padding:8px;border:1px solid #ddd;">Praktijken</td><td style="padding:8px;border:1px solid #ddd;">${{ steps.stats.outputs.total_praktijken }}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;">Signalen</td><td style="padding:8px;border:1px solid #ddd;">${{ steps.stats.outputs.total_signalen }}</td></tr>
+            <tr style="background:#f0f0f0;"><td style="padding:8px;border:1px solid #ddd;">Matches</td><td style="padding:8px;border:1px solid #ddd;">${{ steps.stats.outputs.total_matches }}</td></tr>
+            <tr><td style="padding:8px;border:1px solid #ddd;">Gemeenten</td><td style="padding:8px;border:1px solid #ddd;">${{ steps.stats.outputs.total_gemeenten }}</td></tr>
+            </table>
+
+            <p>Bekijk de volledige resultaten in <a href="${{ github.server_url }}/${{ github.repository }}/blob/main/data/matches_export.csv">matches_export.csv</a></p>
+
+            <hr style="margin:20px 0;">
+            <p style="color:#999;font-size:12px;">Automatisch verzonden door Huisarts Scraper via GitHub Actions</p>
+
+      - name: Send error notification
+        if: failure()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "Huisarts Scraper FOUT"
+          to: ${{ secrets.NOTIFY_EMAIL }}
+          from: Huisarts Scraper <${{ secrets.SMTP_USERNAME }}>
+          body: |
+            De dagelijkse Huisarts Scraper is mislukt.
+            Bekijk de logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

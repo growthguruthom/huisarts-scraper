@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+
+# Data directory — allow DB and exports for GitHub Actions persistence
+data/*
+!data/huisarts.db
+!data/matches_export.csv
+!data/today_matches.json
+!data/.gitkeep
+
+# Logs
+data/*.log

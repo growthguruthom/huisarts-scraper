@@ -1,0 +1,164 @@
+{
+  "name": "Huisarts Verbouwing Scraper - Weekly",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Elke maandag 08:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "command": "cd ~/Desktop/huisarts-scraper && ./weekly_run.sh 2>&1",
+        "timeout": 600
+      },
+      "id": "execute-scraper",
+      "name": "Run Scraper",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [470, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "check-exit-code",
+              "leftValue": "={{ $json.exitCode }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-success",
+      "name": "Succesvol?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [690, 300]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-status",
+              "name": "status",
+              "value": "success",
+              "type": "string"
+            },
+            {
+              "id": "set-output",
+              "name": "output",
+              "value": "={{ $json.stdout }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "success-output",
+      "name": "Succes",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [910, 200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "set-status-error",
+              "name": "status",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "set-error",
+              "name": "error",
+              "value": "={{ $json.stderr }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "error-output",
+      "name": "Fout",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [910, 400]
+    }
+  ],
+  "connections": {
+    "Elke maandag 08:00": {
+      "main": [
+        [
+          {
+            "node": "Run Scraper",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Scraper": {
+      "main": [
+        [
+          {
+            "node": "Succesvol?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Succesvol?": {
+      "main": [
+        [
+          {
+            "node": "Succes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fout",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": [
+    {
+      "name": "scraper"
+    }
+  ]
+}

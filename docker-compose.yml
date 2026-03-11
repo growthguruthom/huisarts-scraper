@@ -1,0 +1,71 @@
+version: '3.8'
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: huisarts-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-changeme}
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - GENERIC_TIMEZONE=Europe/Amsterdam
+      - TZ=Europe/Amsterdam
+      # Allow executing commands on the host via the scraper container
+      - NODE_FUNCTION_ALLOW_EXTERNAL=*
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - scraper_data:/app/data
+      - ./n8n-workflow-daily.json:/home/node/workflow.json:ro
+    networks:
+      - scraper-net
+
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: huisarts-scraper
+    restart: "no"
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID:-}
+      - TZ=Europe/Amsterdam
+    volumes:
+      - scraper_data:/app/data
+    networks:
+      - scraper-net
+    # Don't auto-start — n8n triggers this via docker exec
+    profiles:
+      - manual
+
+  # Lightweight API that n8n calls to trigger scraper runs
+  scraper-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: huisarts-scraper-api
+    restart: unless-stopped
+    environment:
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - GOOGLE_CSE_ID=${GOOGLE_CSE_ID:-}
+      - API_TOKEN=${SCRAPER_API_TOKEN:-geheim123}
+      - TZ=Europe/Amsterdam
+    ports:
+      - "8321:8321"
+    volumes:
+      - scraper_data:/app/data
+    networks:
+      - scraper-net
+
+volumes:
+  n8n_data:
+  scraper_data:
+
+networks:
+  scraper-net:
+    driver: bridge

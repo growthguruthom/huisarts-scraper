@@ -1,0 +1,28 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libxml2-dev \
+    libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-scraper.txt .
+RUN pip install --no-cache-dir -r requirements-scraper.txt
+
+COPY main.py .
+COPY run_enrich.py .
+COPY daily_run_docker.sh .
+COPY scraper_api.py .
+COPY scraper/ scraper/
+COPY .env .env
+
+RUN chmod +x daily_run_docker.sh
+RUN mkdir -p data
+
+VOLUME /app/data
+
+EXPOSE 8321
+
+CMD ["python", "scraper_api.py"]

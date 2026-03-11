@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Huisarts Verbouwing Tracker</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a2e; }
+.header { background: linear-gradient(135deg, #2B5797, #1a3a6c); color: white; padding: 20px 32px; }
+.header h1 { font-size: 24px; font-weight: 600; }
+.header p { opacity: 0.8; font-size: 14px; margin-top: 4px; }
+.stats { display: flex; gap: 16px; padding: 20px 32px; flex-wrap: wrap; }
+.stat-card { background: white; border-radius: 10px; padding: 16px 24px; flex: 1; min-width: 150px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.stat-card .value { font-size: 28px; font-weight: 700; color: #2B5797; }
+.stat-card .label { font-size: 13px; color: #666; margin-top: 2px; }
+.tabs { display: flex; gap: 0; padding: 0 32px; border-bottom: 2px solid #e0e0e0; background: white; }
+.tab { padding: 12px 24px; cursor: pointer; font-size: 14px; font-weight: 500; color: #666; border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all 0.2s; }
+.tab:hover { color: #2B5797; }
+.tab.active { color: #2B5797; border-bottom-color: #2B5797; }
+.content { padding: 20px 32px; }
+.panel { display: none; }
+.panel.active { display: block; }
+.filters { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+.filters select, .filters input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; background: white; }
+.filters select { min-width: 160px; }
+table { width: 100%; border-collapse: collapse; background: white; border-radius: 10px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+th { background: #2B5797; color: white; padding: 10px 14px; text-align: left; font-size: 13px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+th:hover { background: #1e4080; }
+td { padding: 10px 14px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+tr:hover td { background: #f8f9ff; }
+td a { color: #2B5797; text-decoration: none; }
+td a:hover { text-decoration: underline; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.badge-hoog { background: #fee2e2; color: #dc2626; }
+.badge-medium { background: #fff7ed; color: #ea580c; }
+.badge-laag { background: #eff6ff; color: #2563eb; }
+#map { height: 500px; border-radius: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.detail-panel { background: white; border-radius: 10px; padding: 20px; margin-top: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: none; }
+.detail-panel h3 { margin-bottom: 12px; color: #2B5797; }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.detail-field { margin-bottom: 8px; }
+.detail-field .label { font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; }
+.detail-field .value { font-size: 14px; margin-top: 2px; }
+.update-info { font-size: 12px; color: #888; padding: 8px 32px 16px; }
+.count-info { font-size: 13px; color: #666; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <h1>Huisarts Verbouwing Tracker</h1>
+    <p>Identificeert huisartspraktijken die gaan verbouwen in Nederland</p>
+</div>
+
+<div class="stats" id="stats"></div>
+<div class="update-info" id="update-info"></div>
+
+<div class="tabs">
+    <div class="tab active" data-tab="overview">Overzicht</div>
+    <div class="tab" data-tab="map">Kaart</div>
+    <div class="tab" data-tab="unmatched">Ongematchte signalen</div>
+</div>
+
+<div class="content">
+    <!-- Overview panel -->
+    <div class="panel active" id="panel-overview">
+        <div class="filters">
+            <select id="filter-stad"><option value="">Alle steden</option></select>
+            <select id="filter-score"><option value="">Alle scores</option></select>
+            <select id="filter-type"><option value="">Alle types</option></select>
+            <input type="text" id="filter-search" placeholder="Zoek op naam of titel...">
+        </div>
+        <div class="count-info" id="count-info"></div>
+        <table id="matches-table">
+            <thead>
+                <tr>
+                    <th data-sort="praktijk_naam">Praktijk</th>
+                    <th data-sort="praktijk_stad">Stad</th>
+                    <th data-sort="praktijk_postcode">Postcode</th>
+                    <th data-sort="signaal_type">Type</th>
+                    <th data-sort="signaal_titel">Signaal</th>
+                    <th data-sort="publicatiedatum">Datum</th>
+                    <th data-sort="match_score">Score</th>
+                    <th data-sort="gemeente">Gemeente</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+        <div class="detail-panel" id="detail-panel">
+            <h3>Detail</h3>
+            <div class="detail-grid" id="detail-content"></div>
+        </div>
+    </div>
+
+    <!-- Map panel -->
+    <div class="panel" id="panel-map">
+        <div id="map"></div>
+        <p style="margin-top:8px;font-size:12px;color:#888;">Rood = hoog vertrouwen, Oranje = medium, Blauw = laag</p>
+    </div>
+
+    <!-- Unmatched panel -->
+    <div class="panel" id="panel-unmatched">
+        <div class="count-info" id="unmatched-count"></div>
+        <table id="unmatched-table">
+            <thead>
+                <tr>
+                    <th>Type</th>
+                    <th>Titel</th>
+                    <th>Gemeente</th>
+                    <th>Postcode</th>
+                    <th>Datum</th>
+                    <th>Bron</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+let matchesData = [];
+let unmatchedData = [];
+let map = null;
+let sortCol = null;
+let sortAsc = true;
+
+// Load data
+async function init() {
+    const [stats, matches, unmatched] = await Promise.all([
+        fetch('/api/stats').then(r => r.json()),
+        fetch('/api/matches').then(r => r.json()),
+        fetch('/api/unmatched').then(r => r.json()),
+    ]);
+
+    matchesData = matches;
+    unmatchedData = unmatched;
+
+    renderStats(stats);
+    populateFilters(matches);
+    renderMatches(matches);
+    renderUnmatched(unmatched);
+}
+
+function renderStats(s) {
+    document.getElementById('stats').innerHTML = [
+        { value: s.praktijken, label: 'Praktijken' },
+        { value: s.signalen, label: 'Signalen' },
+        { value: s.matches, label: 'Matches' },
+        { value: s.gemeenten, label: 'Gemeenten' },
+    ].map(d => `<div class="stat-card"><div class="value">${d.value}</div><div class="label">${d.label}</div></div>`).join('');
+
+    if (s.laatste_update) {
+        document.getElementById('update-info').textContent = `Laatste update: ${s.laatste_update.substring(0, 19)}`;
+    }
+}
+
+function populateFilters(data) {
+    const steden = [...new Set(data.map(d => d.praktijk_stad).filter(Boolean))].sort();
+    const scores = [...new Set(data.map(d => d.match_score).filter(Boolean))];
+    const types = [...new Set(data.map(d => d.signaal_type).filter(Boolean))];
+
+    const stadSel = document.getElementById('filter-stad');
+    steden.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; stadSel.appendChild(o); });
+
+    const scoreSel = document.getElementById('filter-score');
+    scores.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; scoreSel.appendChild(o); });
+
+    const typeSel = document.getElementById('filter-type');
+    types.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t; typeSel.appendChild(o); });
+}
+
+function getFilteredMatches() {
+    const stad = document.getElementById('filter-stad').value;
+    const score = document.getElementById('filter-score').value;
+    const type = document.getElementById('filter-type').value;
+    const search = document.getElementById('filter-search').value.toLowerCase();
+
+    return matchesData.filter(d => {
+        if (stad && d.praktijk_stad !== stad) return false;
+        if (score && d.match_score !== score) return false;
+        if (type && d.signaal_type !== type) return false;
+        if (search) {
+            const hay = `${d.praktijk_naam || ''} ${d.signaal_titel || ''} ${d.gemeente || ''}`.toLowerCase();
+            if (!hay.includes(search)) return false;
+        }
+        return true;
+    });
+}
+
+function renderMatches(data) {
+    if (!data) data = getFilteredMatches();
+
+    if (sortCol) {
+        data.sort((a, b) => {
+            const va = (a[sortCol] || '').toString().toLowerCase();
+            const vb = (b[sortCol] || '').toString().toLowerCase();
+            return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+        });
+    }
+
+    document.getElementById('count-info').textContent = `${data.length} van ${matchesData.length} resultaten`;
+
+    const tbody = document.querySelector('#matches-table tbody');
+    tbody.innerHTML = data.map((d, i) => `
+        <tr data-idx="${i}" style="cursor:pointer">
+            <td><strong>${esc(d.praktijk_naam)}</strong></td>
+            <td>${esc(d.praktijk_stad)}</td>
+            <td>${esc(d.praktijk_postcode)}</td>
+            <td>${esc(d.signaal_type)}</td>
+            <td>${esc((d.signaal_titel || '').substring(0, 80))}</td>
+            <td>${esc(d.publicatiedatum)}</td>
+            <td><span class="badge badge-${d.match_score}">${esc(d.match_score)}</span></td>
+            <td>${esc(d.gemeente)}</td>
+        </tr>
+    `).join('');
+
+    // Click rows for detail
+    tbody.querySelectorAll('tr').forEach(tr => {
+        tr.addEventListener('click', () => showDetail(data[parseInt(tr.dataset.idx)]));
+    });
+}
+
+function showDetail(d) {
+    const panel = document.getElementById('detail-panel');
+    panel.style.display = 'block';
+    document.getElementById('detail-content').innerHTML = `
+        <div>
+            <h4 style="margin-bottom:12px">Praktijk</h4>
+            ${field('Naam', d.praktijk_naam)}
+            ${field('AGB-code', d.agb_code)}
+            ${field('Adres', d.praktijk_adres)}
+            ${field('Postcode', `${d.praktijk_postcode || ''} ${d.praktijk_stad || ''}`)}
+            ${field('Telefoon', d.telefoon)}
+            ${d.website ? field('Website', `<a href="${esc(d.website)}" target="_blank">${esc(d.website)}</a>`) : ''}
+        </div>
+        <div>
+            <h4 style="margin-bottom:12px">Signaal</h4>
+            ${field('Type', d.signaal_type)}
+            ${field('Titel', d.signaal_titel)}
+            ${field('Datum', d.publicatiedatum)}
+            ${field('Gemeente', d.gemeente)}
+            ${field('Match', `${d.match_score} (${d.match_type})`)}
+            ${d.omschrijving ? field('Omschrijving', (d.omschrijving || '').substring(0, 300)) : ''}
+            ${d.bron_url ? `<a href="${esc(d.bron_url)}" target="_blank" style="color:#2B5797">Bekijk bron &rarr;</a>` : ''}
+        </div>
+    `;
+}
+
+function renderUnmatched(data) {
+    document.getElementById('unmatched-count').textContent = `${data.length} ongematchte signalen`;
+    const tbody = document.querySelector('#unmatched-table tbody');
+    tbody.innerHTML = data.map(d => `
+        <tr>
+            <td>${esc(d.type)}</td>
+            <td>${esc((d.titel || '').substring(0, 100))}</td>
+            <td>${esc(d.gemeente)}</td>
+            <td>${esc(d.postcode)}</td>
+            <td>${esc(d.publicatiedatum)}</td>
+            <td>${d.bron_url ? `<a href="${esc(d.bron_url)}" target="_blank">Link</a>` : '-'}</td>
+        </tr>
+    `).join('');
+}
+
+function initMap() {
+    if (map) return;
+    map = L.map('map').setView([52.1326, 5.2913], 7);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    const colors = { hoog: '#dc2626', medium: '#ea580c', laag: '#2563eb' };
+
+    matchesData.forEach(d => {
+        if (!d.lat || !d.lon) return;
+        const color = colors[d.match_score] || '#888';
+        const marker = L.circleMarker([d.lat, d.lon], {
+            radius: 8, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.85,
+        }).addTo(map);
+        marker.bindPopup(`
+            <strong>${esc(d.praktijk_naam)}</strong><br>
+            ${esc(d.praktijk_adres || '')}<br>
+            ${esc(d.praktijk_postcode || '')} ${esc(d.praktijk_stad || '')}<br><br>
+            <strong>Signaal:</strong> ${esc(d.signaal_type)}<br>
+            ${esc((d.signaal_titel || '').substring(0, 100))}<br>
+            ${d.bron_url ? `<a href="${esc(d.bron_url)}" target="_blank">Bekijk bron</a>` : ''}
+        `);
+    });
+}
+
+function field(label, value) {
+    return `<div class="detail-field"><div class="label">${label}</div><div class="value">${value || '-'}</div></div>`;
+}
+
+function esc(s) { if (!s) return '-'; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// Tab switching
+document.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`panel-${tab.dataset.tab}`).classList.add('active');
+        if (tab.dataset.tab === 'map') setTimeout(initMap, 100);
+    });
+});
+
+// Filters
+['filter-stad', 'filter-score', 'filter-type', 'filter-search'].forEach(id => {
+    document.getElementById(id).addEventListener('input', () => renderMatches());
+});
+
+// Column sorting
+document.querySelectorAll('th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (sortCol === col) sortAsc = !sortAsc;
+        else { sortCol = col; sortAsc = true; }
+        renderMatches();
+    });
+});
+
+init();
+</script>
+</body>
+</html>
