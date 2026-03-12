@@ -177,8 +177,7 @@ jobs:
           subject: "Huisarts Scraper: +${{ steps.stats.outputs.new_signalen }} signalen, +${{ steps.stats.outputs.new_matches }} matches"
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: Huisarts Scraper <${{ secrets.SMTP_USERNAME }}>
-          content_type: text/html
-          body: |
+          html_body: |
             <h2>Huisarts Verbouwing Scraper — Dagelijks Rapport</h2>
             <p><strong>Datum:</strong> ${{ github.event.repository.updated_at || 'vandaag' }}</p>
 
