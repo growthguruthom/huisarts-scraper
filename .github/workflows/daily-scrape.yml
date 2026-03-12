@@ -200,7 +200,7 @@ jobs:
             <tr><td style="padding:8px;border:1px solid #ddd;">Gemeenten</td><td style="padding:8px;border:1px solid #ddd;">${{ steps.stats.outputs.total_gemeenten }}</td></tr>
             </table>
 
-            <p>Bekijk de volledige resultaten in <a href="${{ github.server_url }}/${{ github.repository }}/blob/main/data/matches_export.csv">matches_export.csv</a></p>
+            <p>Bekijk de volledige resultaten op het <a href="https://huisarts-tracker.streamlit.app/">dashboard</a></p>
 
             <hr style="margin:20px 0;">
             <p style="color:#999;font-size:12px;">Automatisch verzonden door Huisarts Scraper via GitHub Actions</p>
