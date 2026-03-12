@@ -39,6 +39,7 @@ def _write_matches_sheet(ws):
         "Telefoon", "Website", "Signaaltype", "Signaal titel",
         "Omschrijving", "Bron URL", "Publicatiedatum", "Gemeente",
         "Match score", "Match type",
+        "Contact naam", "Contact rol", "Nieuws titel", "Nieuws URL", "Nieuws samenvatting",
     ]
 
     # Style headers
@@ -69,6 +70,11 @@ def _write_matches_sheet(ws):
         ws.cell(row=row_idx, column=13, value=row.get("gemeente"))
         ws.cell(row=row_idx, column=14, value=row.get("match_score"))
         ws.cell(row=row_idx, column=15, value=row.get("match_type"))
+        ws.cell(row=row_idx, column=16, value=row.get("contact_naam"))
+        ws.cell(row=row_idx, column=17, value=row.get("contact_rol"))
+        ws.cell(row=row_idx, column=18, value=row.get("nieuws_titel"))
+        ws.cell(row=row_idx, column=19, value=row.get("nieuws_url"))
+        ws.cell(row=row_idx, column=20, value=row.get("nieuws_samenvatting"))
 
     # Auto-width columns
     for col in ws.columns:

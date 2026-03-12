@@ -51,10 +51,17 @@ def get_matches():
             s.gemeente,
             m.match_score,
             m.match_type,
-            m.created_at
+            m.created_at,
+            r.contact_naam,
+            r.contact_rol,
+            r.contact_bron,
+            r.nieuws_titel,
+            r.nieuws_url,
+            r.nieuws_samenvatting
         FROM matches m
         JOIN praktijken p ON m.praktijk_agb = p.agb_code
         JOIN signalen s ON m.signaal_id = s.id
+        LEFT JOIN research r ON m.id = r.match_id
         ORDER BY m.created_at DESC
     """).fetchall()
     conn.close()

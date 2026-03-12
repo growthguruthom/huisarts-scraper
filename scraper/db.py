@@ -67,6 +67,19 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_praktijken_stad ON praktijken(stad);
         CREATE INDEX IF NOT EXISTS idx_signalen_type ON signalen(type);
         CREATE INDEX IF NOT EXISTS idx_signalen_datum ON signalen(publicatiedatum);
+
+        CREATE TABLE IF NOT EXISTS research (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id INTEGER UNIQUE REFERENCES matches(id),
+            contact_naam TEXT,
+            contact_rol TEXT,
+            contact_bron TEXT,
+            nieuws_titel TEXT,
+            nieuws_url TEXT,
+            nieuws_samenvatting TEXT,
+            raw_response TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     """)
     conn.close()
 
@@ -161,10 +174,17 @@ def get_dashboard_data() -> list[dict]:
             s.gemeente,
             m.match_score,
             m.match_type,
-            m.created_at
+            m.created_at,
+            r.contact_naam,
+            r.contact_rol,
+            r.contact_bron,
+            r.nieuws_titel,
+            r.nieuws_url,
+            r.nieuws_samenvatting
         FROM matches m
         JOIN praktijken p ON m.praktijk_agb = p.agb_code
         JOIN signalen s ON m.signaal_id = s.id
+        LEFT JOIN research r ON m.id = r.match_id
         ORDER BY m.created_at DESC
     """).fetchall()
     conn.close()
@@ -179,6 +199,51 @@ def get_unmatched_signalen() -> list[dict]:
         LEFT JOIN matches m ON s.id = m.signaal_id
         WHERE m.id IS NULL
         ORDER BY s.publicatiedatum DESC
+    """).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def insert_research(match_id: int, data: dict):
+    """Insert or update research data for a match."""
+    conn = get_connection()
+    try:
+        conn.execute("""
+            INSERT INTO research (match_id, contact_naam, contact_rol, contact_bron,
+                                  nieuws_titel, nieuws_url, nieuws_samenvatting, raw_response)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(match_id) DO UPDATE SET
+                contact_naam=excluded.contact_naam, contact_rol=excluded.contact_rol,
+                contact_bron=excluded.contact_bron, nieuws_titel=excluded.nieuws_titel,
+                nieuws_url=excluded.nieuws_url, nieuws_samenvatting=excluded.nieuws_samenvatting,
+                raw_response=excluded.raw_response, created_at=CURRENT_TIMESTAMP
+        """, (
+            match_id,
+            data.get("contact_naam"),
+            data.get("contact_rol"),
+            data.get("contact_bron"),
+            data.get("nieuws_titel"),
+            data.get("nieuws_url"),
+            data.get("nieuws_samenvatting"),
+            data.get("raw_response"),
+        ))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_matches_without_research() -> list[dict]:
+    """Get matches that don't have research data yet."""
+    conn = get_connection(readonly=True)
+    rows = conn.execute("""
+        SELECT m.id AS match_id, p.naam AS praktijk_naam, p.website, p.stad AS praktijk_stad,
+               p.agb_code, s.titel AS signaal_titel, s.gemeente
+        FROM matches m
+        JOIN praktijken p ON m.praktijk_agb = p.agb_code
+        JOIN signalen s ON m.signaal_id = s.id
+        LEFT JOIN research r ON m.id = r.match_id
+        WHERE r.id IS NULL
+        ORDER BY m.created_at DESC
     """).fetchall()
     conn.close()
     return [dict(r) for r in rows]

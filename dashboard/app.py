@@ -109,7 +109,7 @@ def _render_overview(data: list[dict]):
     display_cols = [
         "praktijk_naam", "praktijk_stad", "praktijk_postcode",
         "signaal_type", "signaal_titel", "publicatiedatum",
-        "match_score", "gemeente",
+        "match_score", "gemeente", "contact_naam",
     ]
     display_cols = [c for c in display_cols if c in filtered.columns]
 
@@ -123,6 +123,7 @@ def _render_overview(data: list[dict]):
             "publicatiedatum": "Datum",
             "match_score": "Score",
             "gemeente": "Gemeente",
+            "contact_naam": "Contact",
         }),
         use_container_width=True,
         hide_index=True,
@@ -163,6 +164,31 @@ def _render_overview(data: list[dict]):
                     st.write(f"**Omschrijving:** {row['omschrijving'][:300]}")
                 if row.get("bron_url"):
                     st.markdown(f"[Bekijk bron]({row['bron_url']})")
+
+            # Research section
+            has_research = row.get("contact_naam") or row.get("nieuws_titel")
+            if has_research:
+                st.divider()
+                col3, col4 = st.columns(2)
+                with col3:
+                    st.markdown("**Contactpersoon**")
+                    if row.get("contact_naam"):
+                        st.write(f"**Naam:** {row['contact_naam']}")
+                        st.write(f"**Rol:** {row.get('contact_rol', '-')}")
+                        if row.get("contact_bron"):
+                            st.markdown(f"[Bron]({row['contact_bron']})")
+                    else:
+                        st.write("Geen contactpersoon gevonden")
+                with col4:
+                    st.markdown("**Nieuws / Haakje**")
+                    if row.get("nieuws_titel"):
+                        st.write(f"**Titel:** {row['nieuws_titel']}")
+                        if row.get("nieuws_samenvatting"):
+                            st.write(f"**Samenvatting:** {row['nieuws_samenvatting']}")
+                        if row.get("nieuws_url"):
+                            st.markdown(f"[Lees artikel]({row['nieuws_url']})")
+                    else:
+                        st.write("Geen nieuwsartikel gevonden")
 
 
 def _render_map(data: list[dict]):

@@ -52,6 +52,11 @@ def main():
         help="Toon database statistieken"
     )
     parser.add_argument(
+        "--research",
+        action="store_true",
+        help="Verrijk matches met contactpersoon en nieuwsartikelen via Claude API"
+    )
+    parser.add_argument(
         "--delay",
         type=float,
         default=2.0,
@@ -96,7 +101,12 @@ def main():
         from scraper.matcher import match_signalen
         match_signalen(since=since_date)
 
-    # Step 5: Export if requested
+        # Step 5: Research enrichment (Claude API)
+        if args.research:
+            from scraper.researcher import research_matches
+            research_matches(delay=args.delay)
+
+    # Step 6: Export if requested
     if args.export:
         from scraper.exporter import export_excel
         export_excel(args.export)

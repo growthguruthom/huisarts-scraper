@@ -73,8 +73,9 @@ jobs:
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          python main.py --since 2d --enrich --delay 1.5
+          python main.py --since 2d --enrich --research --delay 1.5
 
       - name: Export results
         run: |
@@ -91,14 +92,16 @@ jobs:
           conn = sqlite3.connect(f'file:{DB}?mode=ro', uri=True)
           conn.row_factory = sqlite3.Row
 
-          # Full export
+          # Full export (including research data)
           rows = conn.execute('''
               SELECT p.naam, p.agb_code, p.adres, p.postcode, p.stad, p.telefoon, p.website,
                      s.type, s.titel, s.bron_url, s.publicatiedatum, s.gemeente,
-                     m.match_score, m.match_type, m.created_at
+                     m.match_score, m.match_type, m.created_at,
+                     r.contact_naam, r.contact_rol, r.nieuws_titel, r.nieuws_url, r.nieuws_samenvatting
               FROM matches m
               JOIN praktijken p ON m.praktijk_agb = p.agb_code
               JOIN signalen s ON m.signaal_id = s.id
+              LEFT JOIN research r ON m.id = r.match_id
               ORDER BY m.created_at DESC
           ''').fetchall()
 
@@ -109,13 +112,15 @@ jobs:
                   writer.writerow(list(r))
           print(f'Exported {len(rows)} matches')
 
-          # Today's new matches
+          # Today's new matches (with research)
           since = (datetime.now() - timedelta(hours=24)).isoformat()
           new_matches = conn.execute('''
-              SELECT p.naam, p.stad, s.titel, s.gemeente, m.match_type, m.match_score
+              SELECT p.naam, p.stad, s.titel, s.gemeente, m.match_type, m.match_score,
+                     r.contact_naam, r.contact_rol, r.nieuws_titel, r.nieuws_url
               FROM matches m
               JOIN praktijken p ON m.praktijk_agb = p.agb_code
               JOIN signalen s ON m.signaal_id = s.id
+              LEFT JOIN research r ON m.id = r.match_id
               WHERE m.created_at >= ?
               ORDER BY m.created_at DESC LIMIT 20
           ''', (since,)).fetchall()
