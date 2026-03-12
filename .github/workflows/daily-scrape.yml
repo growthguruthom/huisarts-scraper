@@ -28,6 +28,7 @@ jobs:
         run: pip install -r requirements-scraper.txt
 
       - name: Restore database
+        # Database wordt opgeslagen als artifact EN in de repo
         continue-on-error: true
         uses: actions/download-artifact@v4
         with:
@@ -36,6 +37,7 @@ jobs:
 
       - name: Fallback - use repo database
         run: |
+          # Als artifact niet beschikbaar is, gebruik DB uit repo
           if [ ! -f data/huisarts.db ]; then
             echo "Geen artifact DB, check repo..."
             if [ -f data/huisarts.db ]; then
@@ -89,6 +91,7 @@ jobs:
           conn = sqlite3.connect(f'file:{DB}?mode=ro', uri=True)
           conn.row_factory = sqlite3.Row
 
+          # Full export
           rows = conn.execute('''
               SELECT p.naam, p.agb_code, p.adres, p.postcode, p.stad, p.telefoon, p.website,
                      s.type, s.titel, s.bron_url, s.publicatiedatum, s.gemeente,
@@ -106,6 +109,7 @@ jobs:
                   writer.writerow(list(r))
           print(f'Exported {len(rows)} matches')
 
+          # Today's new matches
           since = (datetime.now() - timedelta(hours=24)).isoformat()
           new_matches = conn.execute('''
               SELECT p.naam, p.stad, s.titel, s.gemeente, m.match_type, m.match_score
@@ -164,19 +168,18 @@ jobs:
           git push || echo "Push failed, continuing..."
 
       - name: Send email notification
-        if: steps.stats.outputs.new_matches != '0'
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 587
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          subject: "Huisarts Scraper: ${{ steps.stats.outputs.new_matches }} nieuwe matches"
+          subject: "Huisarts Scraper: +${{ steps.stats.outputs.new_signalen }} signalen, +${{ steps.stats.outputs.new_matches }} matches"
           to: ${{ secrets.NOTIFY_EMAIL }}
           from: Huisarts Scraper <${{ secrets.SMTP_USERNAME }}>
           content_type: text/html
           body: |
-            <h2>Huisarts Verbouwing Scraper - Dagelijks Rapport</h2>
+            <h2>Huisarts Verbouwing Scraper — Dagelijks Rapport</h2>
             <p><strong>Datum:</strong> ${{ github.event.repository.updated_at || 'vandaag' }}</p>
 
             <h3>Vandaag</h3>
