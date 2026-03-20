@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "naam": "Huisartsenpraktijk P. van den Berg",
+    "stad": "Den Haag",
+    "titel": "Kennisgeving ontvangst aanvraag omgevingsvergunning, Overmeerseweg 7, 1394BC Nederhorst den Berg",
+    "gemeente": "Wijdemeren",
+    "match_type": "naam",
+    "match_score": "hoog",
+    "contact_naam": null,
+    "contact_rol": null,
+    "nieuws_titel": null,
+    "nieuws_url": null
+  }
+]
