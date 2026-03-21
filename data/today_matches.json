@@ -1,10 +1,10 @@
 [
   {
-    "naam": "Huisartsenpraktijk P. van den Berg",
-    "stad": "Den Haag",
-    "titel": "Kennisgeving ontvangst aanvraag omgevingsvergunning, Overmeerseweg 7, 1394BC Nederhorst den Berg",
-    "gemeente": "Wijdemeren",
-    "match_type": "naam",
+    "naam": "Huisartsenpraktijk Kloosterweg",
+    "stad": "Waalwijk",
+    "titel": "Besluit omgevingsvergunning, Kloosterweg 6, 5144 CB Waalwijk, (BOPA)",
+    "gemeente": "Waalwijk",
+    "match_type": "postcode+straat",
     "match_score": "hoog",
     "contact_naam": null,
     "contact_rol": null,
