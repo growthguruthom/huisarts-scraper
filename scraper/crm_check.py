@@ -363,6 +363,42 @@ STOPWORDS = frozenset({
 })
 
 
+def _normalize_postcode(pc):
+    """Normalize a Dutch postcode to '1234AB' format (no spaces)."""
+    if not pc:
+        return ''
+    pc = re.sub(r'\s+', '', pc.strip().upper())
+    # Must be 4 digits + 2 letters
+    if re.match(r'^\d{4}[A-Z]{2}$', pc):
+        return pc
+    return ''
+
+
+def _build_postcode_index(crm_accounts):
+    """Build a dict mapping normalized 6-digit postcode → list of CRM accounts."""
+    pc_index = {}
+    for account in crm_accounts:
+        pc = _normalize_postcode(account.get('postcode', ''))
+        if pc:
+            pc_index.setdefault(pc, []).append(account)
+    return pc_index
+
+
+def _find_in_crm_by_postcode(postcode, pc_index):
+    """Find CRM accounts matching a postcode.
+
+    Returns the best match (prefers klant > prospect > lead), or None.
+    """
+    pc = _normalize_postcode(postcode)
+    if not pc or pc not in pc_index:
+        return None
+    candidates = pc_index[pc]
+    # Prefer klant > prospect > lead
+    priority = {'klant': 0, 'prospect': 1, 'lead': 2}
+    candidates_sorted = sorted(candidates, key=lambda a: priority.get(a.get('type', 'lead'), 3))
+    return candidates_sorted[0] if candidates_sorted else None
+
+
 def _find_in_crm(company, name_index):
     """Find a company in the CRM name index using fuzzy matching.
 
@@ -630,11 +666,19 @@ def enrich_crm_status(embedded_data_path=None):
                 continue
             name_index[key] = account
 
-    # Get signals without CRM status
+        # Build postcode index for location-based matching
+        pc_index = _build_postcode_index(crm_accounts)
+
+    # Get signals without CRM status (include location data + matched practice)
     conn = get_connection(readonly=True)
     rows = conn.execute("""
-        SELECT id, type, titel, omschrijving FROM signalen
-        WHERE crm_status IS NULL OR crm_status = ''
+        SELECT s.id, s.type, s.titel, s.omschrijving, s.postcode, s.adres,
+               s.stad, s.gemeente,
+               p.naam AS matched_praktijk
+        FROM signalen s
+        LEFT JOIN matches m ON m.signaal_id = s.id
+        LEFT JOIN praktijken p ON p.agb_code = m.praktijk_agb
+        WHERE s.crm_status IS NULL OR s.crm_status = ''
     """).fetchall()
     conn.close()
 
@@ -654,21 +698,44 @@ def enrich_crm_status(embedded_data_path=None):
         signal_type = row['type']
         titel = row['titel'] or ''
         omschrijving = row['omschrijving'] or ''
+        signal_postcode = row['postcode'] or ''
+        matched_praktijk = row['matched_praktijk'] or ''
 
-        # Extract company name from signal
-        company = _extract_company_from_signal(titel, omschrijving)
+        # Strategy 1: If signal was matched to a practice, use that practice name
+        company = None
+        if matched_praktijk:
+            company = matched_praktijk
+
+        # Strategy 2: Extract company name from signal title/description
         if not company:
+            company = _extract_company_from_signal(titel, omschrijving)
+
+        # Find company in CRM (by name)
+        crm_match = None
+        if company:
+            if live_mode:
+                crm_match = _find_in_crm_live(company, access_token)
+            else:
+                crm_match = _find_in_crm(company, name_index)
+
+        # Strategy 3: Postcode-based matching for location-bound signals
+        if not crm_match and signal_postcode and not live_mode:
+            crm_match = _find_in_crm_by_postcode(signal_postcode, pc_index)
+            if crm_match:
+                logger.debug(f"Postcode match: {signal_postcode} → {crm_match['name']}")
+
+        # Strategy 3b: Extract postcode from title if signal table has none
+        if not crm_match and not signal_postcode and not live_mode:
+            pc_from_title = re.search(r'\b(\d{4}\s?[A-Z]{2})\b', titel)
+            if pc_from_title:
+                crm_match = _find_in_crm_by_postcode(pc_from_title.group(1), pc_index)
+
+        if not crm_match and not company:
             write_conn.execute(
                 "UPDATE signalen SET crm_status = 'nieuw' WHERE id = ?",
                 (signal_id,))
             matched['nieuw'] += 1
             continue
-
-        # Find company in CRM
-        if live_mode:
-            crm_match = _find_in_crm_live(company, access_token)
-        else:
-            crm_match = _find_in_crm(company, name_index)
 
         status = crm_match['type'] if crm_match else 'nieuw'
         crm_name = crm_match['name'] if crm_match else ''
@@ -738,6 +805,29 @@ def enrich_crm_status(embedded_data_path=None):
                         'reason': f"Nieuwe beslisser bij bestaande {status} (contactcheck niet beschikbaar)",
                     }, ensure_ascii=False)
                     signal_types['sales'] += 1
+
+        # Verbouwing / omgevingsvergunning signals → SALES if matched to CRM
+        elif signal_type in ('omgevingsvergunning', 'verbouwing') and status in ('klant', 'prospect', 'lead'):
+            type_label = 'verbouwing' if signal_type == 'verbouwing' else 'omgevingsvergunning'
+            crm_signal_type = 'sales'
+            crm_contact_info = json.dumps({
+                'account': crm_name,
+                'crm_status': status,
+                'signal_type': type_label,
+                'reason': f"{'Verbouwing' if signal_type == 'verbouwing' else 'Omgevingsvergunning'} bij bestaande {status}",
+            }, ensure_ascii=False)
+            signal_types['sales'] += 1
+
+        # Fusie / zorggroep signals → also SALES if matched to CRM
+        elif signal_type in ('fusie', 'zorggroep') and status in ('klant', 'prospect', 'lead'):
+            crm_signal_type = 'sales'
+            crm_contact_info = json.dumps({
+                'account': crm_name,
+                'crm_status': status,
+                'signal_type': signal_type,
+                'reason': f"{'Fusie' if signal_type == 'fusie' else 'Zorggroep'}-signaal bij bestaande {status}",
+            }, ensure_ascii=False)
+            signal_types['sales'] += 1
 
         # Update database
         write_conn.execute(
