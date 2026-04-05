@@ -30,8 +30,15 @@ PB_API_BASE = 'https://api.phantombuster.com/api/v2'
 
 GP_KEYWORDS = [
     'huisarts', 'huisartsen', 'gezondheidscentrum', 'medisch centrum',
-    'health center', 'eerstelijn', 'zorgcentrum', 'praktijk', 'dokter',
+    'health center', 'eerstelijn', 'zorgcentrum', 'dokter',
     'doktersdienst',
+]
+
+# Companies that contain GP_KEYWORDS but are NOT actual GP practices
+GP_EXCLUDE = [
+    'praktijkmanagement', 'advies', 'consultancy', 'detachering',
+    'uitzendbureau', 'university', 'universiteit', 'ziekenhuis',
+    'hospital', 'opleidingsinstituut', 'academy', 'academie',
 ]
 
 RELEVANT_TITLES = [
@@ -337,7 +344,13 @@ def _normalize_fields(lead: dict) -> dict:
 def _is_gp_practice(company: str) -> bool:
     """Check if company name indicates a GP practice or health center."""
     company_lower = company.lower()
-    return any(kw in company_lower for kw in GP_KEYWORDS)
+    # Must contain at least one GP keyword
+    if not any(kw in company_lower for kw in GP_KEYWORDS):
+        return False
+    # Reject if it matches an exclusion pattern (management bureaus, etc.)
+    if any(excl in company_lower for excl in GP_EXCLUDE):
+        return False
+    return True
 
 
 def _is_relevant_title(title: str) -> bool:
