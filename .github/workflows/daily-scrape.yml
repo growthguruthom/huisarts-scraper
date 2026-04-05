@@ -69,13 +69,15 @@ jobs:
               print('signalen=0')
           " >> "$GITHUB_OUTPUT"
 
-      - name: Run scraper
+      - name: Run scraper (all triggers + news + PhantomBuster)
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GOOGLE_CSE_ID: ${{ secrets.GOOGLE_CSE_ID }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          PHANTOMBUSTER_API_KEY: ${{ secrets.PHANTOMBUSTER_API_KEY }}
+          PHANTOMBUSTER_AGENT_IDS: ${{ secrets.PHANTOMBUSTER_AGENT_IDS }}
         run: |
-          python main.py --since 2d --enrich --research --delay 1.5
+          python main.py --since 2d --enrich --monitor-news --phantombuster --research --delay 1.5
 
       - name: Export results
         run: |
@@ -164,11 +166,86 @@ jobs:
           retention-days: 90
           overwrite: true
 
+      - name: Export signalen to dashboard
+        env:
+          DASHBOARD_REPO_TOKEN: ${{ secrets.DASHBOARD_REPO_TOKEN }}
+        run: |
+          python -c "
+          import sqlite3, json, time
+          from pathlib import Path
+
+          db = Path('data/huisarts.db')
+          if not db.exists():
+              print('No database, skipping signalen export')
+              exit(0)
+
+          conn = sqlite3.connect(f'file:{db}?mode=ro', uri=True)
+          conn.row_factory = sqlite3.Row
+
+          rows = conn.execute('''
+              SELECT id, type, titel, stad, gemeente, bron_url,
+                     publicatiedatum, crm_status, crm_signal_type, crm_contact_info
+              FROM signalen WHERE crm_status IS NOT NULL
+              ORDER BY
+                CASE WHEN crm_signal_type IS NOT NULL THEN 0 ELSE 1 END,
+                CASE WHEN crm_signal_type = \"sales\" THEN 0 ELSE 1 END,
+                publicatiedatum DESC
+          ''').fetchall()
+
+          signalen = []
+          for r in rows:
+              s = {'id': r['id'], 'type': r['type'], 'titel': (r['titel'] or '')[:100],
+                   'stad': r['stad'] or r['gemeente'] or '', 'url': r['bron_url'] or '',
+                   'datum': r['publicatiedatum'], 'crm': r['crm_status']}
+              if r['crm_signal_type']: s['actie'] = r['crm_signal_type']
+              if r['crm_contact_info']:
+                  try:
+                      info = json.loads(r['crm_contact_info'])
+                      if info.get('reason'): s['info'] = info['reason']
+                      if info.get('account'): s['account'] = info['account']
+                  except: pass
+              signalen.append(s)
+          conn.close()
+
+          out = Path('data/signalen-data.js')
+          with open(out, 'w') as f:
+              f.write(f'// Auto-generated from huisarts-scraper database\n')
+              f.write(f'// Generated: {time.strftime(\"%Y-%m-%d %H:%M:%S UTC\", time.gmtime())}, {len(signalen)} signalen\n')
+              f.write(f'const EMBEDDED_SIGNALEN = {json.dumps(signalen, ensure_ascii=False)};\n')
+
+          sales = sum(1 for s in signalen if s.get('actie') == 'sales')
+          support = sum(1 for s in signalen if s.get('actie') == 'support')
+          print(f'Exported {len(signalen)} signalen ({sales} sales, {support} support)')
+          "
+
+      - name: Push signalen to dashboard repo
+        if: env.DASHBOARD_REPO_TOKEN != ''
+        env:
+          DASHBOARD_REPO_TOKEN: ${{ secrets.DASHBOARD_REPO_TOKEN }}
+        run: |
+          if [ ! -f data/signalen-data.js ]; then
+            echo "No signalen-data.js, skipping push"
+            exit 0
+          fi
+
+          # Clone dashboard repo, copy signalen, commit & push
+          git clone --depth 1 https://x-access-token:${DASHBOARD_REPO_TOKEN}@github.com/growthguruthom/ids-media-dashboard.git /tmp/dashboard
+          cp data/signalen-data.js /tmp/dashboard/dashboard/signalen-data.js
+          cd /tmp/dashboard
+          git config user.name "Huisarts Scraper Bot"
+          git config user.email "bot@huisarts-scraper.local"
+          git add dashboard/signalen-data.js
+          git diff --staged --quiet || {
+            git commit -m "chore: update signalen data from daily scrape [automated]"
+            git push
+            echo "Signalen pushed to dashboard repo"
+          }
+
       - name: Commit updated data to repo
         run: |
           git config user.name "Huisarts Scraper Bot"
           git config user.email "bot@huisarts-scraper.local"
-          git add data/huisarts.db data/matches_export.csv data/today_matches.json || true
+          git add data/huisarts.db data/matches_export.csv data/today_matches.json data/signalen-data.js || true
           git diff --staged --quiet || git commit -m "Daily scrape: +${{ steps.stats.outputs.new_signalen }} signalen, +${{ steps.stats.outputs.new_matches }} matches [skip ci]"
           git push || echo "Push failed, continuing..."
 
