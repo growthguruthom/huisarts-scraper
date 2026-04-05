@@ -57,6 +57,22 @@ def main():
         help="Verrijk matches met contactpersoon en nieuwsartikelen via Claude API"
     )
     parser.add_argument(
+        "--monitor-news",
+        action="store_true",
+        help="Monitor Nederlandse zorg-nieuwssites voor signalen (RSS feeds)"
+    )
+    parser.add_argument(
+        "--phantombuster",
+        action="store_true",
+        help="Haal LinkedIn Sales Navigator resultaten op via PhantomBuster API"
+    )
+    parser.add_argument(
+        "--import-linkedin",
+        type=str,
+        default=None,
+        help="Importeer LinkedIn Sales Navigator CSV export (pad naar bestand)"
+    )
+    parser.add_argument(
         "--delay",
         type=float,
         default=2.0,
@@ -97,6 +113,21 @@ def main():
         from scraper.google_search import scrape_google
         scrape_google()
 
+        # Step 3b: Monitor news feeds
+        if args.monitor_news:
+            from scraper.news_monitor import monitor_news
+            monitor_news(since=since_date, delay=args.delay)
+
+        # Step 3c: PhantomBuster LinkedIn signals
+        if args.phantombuster:
+            from scraper.phantombuster import fetch_phantombuster
+            fetch_phantombuster()
+
+        # Step 3d: Import LinkedIn CSV
+        if args.import_linkedin:
+            from scraper.linkedin_monitor import import_linkedin_csv
+            import_linkedin_csv(filepath=args.import_linkedin)
+
         # Step 4: Match signalen to practices
         from scraper.matcher import match_signalen
         match_signalen(since=since_date)
@@ -106,7 +137,11 @@ def main():
             from scraper.researcher import research_matches
             research_matches(delay=args.delay)
 
-    # Step 6: Export if requested
+        # Step 6: CRM cross-check (enrich signals with klant/prospect/lead status)
+        from scraper.crm_check import enrich_crm_status
+        enrich_crm_status()
+
+    # Step 7: Export if requested
     if args.export:
         from scraper.exporter import export_excel
         export_excel(args.export)
