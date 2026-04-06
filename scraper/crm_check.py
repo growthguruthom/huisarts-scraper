@@ -669,7 +669,9 @@ def enrich_crm_status(embedded_data_path=None):
         # Build postcode index for location-based matching
         pc_index = _build_postcode_index(crm_accounts)
 
-    # Get signals without CRM status (include location data + matched practice)
+    # Get signals that need CRM checking:
+    # 1. No CRM status yet (new signals)
+    # 2. Status 'nieuw' without signal_type (may match via postcode on re-check)
     conn = get_connection(readonly=True)
     rows = conn.execute("""
         SELECT s.id, s.type, s.titel, s.omschrijving, s.postcode, s.adres,
@@ -679,6 +681,7 @@ def enrich_crm_status(embedded_data_path=None):
         LEFT JOIN matches m ON m.signaal_id = s.id
         LEFT JOIN praktijken p ON p.agb_code = m.praktijk_agb
         WHERE s.crm_status IS NULL OR s.crm_status = ''
+           OR (s.crm_status = 'nieuw' AND s.crm_signal_type IS NULL)
     """).fetchall()
     conn.close()
 
