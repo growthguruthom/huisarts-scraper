@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "naam": "Medisch Centrum de Artsenij, Huisartsen",
+    "stad": "Hilversum",
+    "titel": "Rembrandtlaan 31, 1213 BE Hilversum (verbouwen en uitbreiden gezondheidscentrum Medisch Centrum De Artsenij); 1971006; 06-05-2026; Status: Aanvraag ontvangen, gemeente Hilversum",
+    "gemeente": "Hilversum",
+    "match_type": "postcode+straat",
+    "match_score": "hoog",
+    "contact_naam": null,
+    "contact_rol": null,
+    "nieuws_titel": null,
+    "nieuws_url": null
+  }
+]
