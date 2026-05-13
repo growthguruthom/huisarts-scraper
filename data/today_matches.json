@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "naam": "Gezondheidscentrum Arts en Zorg Goudenregenhof",
+    "stad": "Den Haag",
+    "titel": "Omgevingsvergunning - Beschikking Verleend, Goudenregenstraat 58, 2565 EZ 's-Gravenhage",
+    "gemeente": "'s-Gravenhage",
+    "match_type": "postcode+straat",
+    "match_score": "hoog",
+    "contact_naam": null,
+    "contact_rol": null,
+    "nieuws_titel": null,
+    "nieuws_url": null
+  }
+]
