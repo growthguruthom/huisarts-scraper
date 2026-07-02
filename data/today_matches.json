@@ -1,1 +1,14 @@
-[]
+[
+  {
+    "naam": "Huisartsenpraktijk Lienderweg",
+    "stad": "Asten",
+    "titel": "Gemeente Asten - aanvraag omgevingsvergunning, Lienderweg 38 5721CM Asten",
+    "gemeente": "Asten",
+    "match_type": "postcode+straat",
+    "match_score": "hoog",
+    "contact_naam": null,
+    "contact_rol": null,
+    "nieuws_titel": null,
+    "nieuws_url": null
+  }
+]
